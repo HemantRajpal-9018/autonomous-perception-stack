@@ -1,0 +1,33 @@
+version: "3.8"
+
+services:
+  perception:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./data:/app/data
+      - ./configs:/app/configs
+      - ./outputs:/app/outputs
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - CUDA_VISIBLE_DEVICES=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: python -m perception_stack.cli --config /app/configs/default.yaml
+
+  tensorrt-export:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./configs:/app/configs
+      - ./outputs:/app/outputs
+    command: python -m perception_stack.export.onnx_export --config /app/configs/default.yaml --output /app/outputs/
+    profiles:
+      - export

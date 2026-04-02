@@ -1,0 +1,94 @@
+# Autonomous Perception Stack Configuration
+
+# Point cloud range [x_min, y_min, z_min, x_max, y_max, z_max]
+point_cloud_range: [-50.0, -50.0, -5.0, 50.0, 50.0, 3.0]
+
+# Voxel size [x, y, z]
+voxel_size: [0.2, 0.2, 0.4]
+
+# Maximum number of points per voxel
+max_points_per_voxel: 32
+
+# Maximum number of voxels
+max_voxels: 20000
+
+# Detection
+detection:
+  backbone: "pointpillars"
+  num_classes: 3
+  class_names: ["vehicle", "pedestrian", "cyclist"]
+  score_threshold: 0.3
+  nms_threshold: 0.5
+  max_detections: 100
+  input_channels: 4  # x, y, z, intensity
+  pillar_features: 64
+  grid_size: [500, 500]
+
+# BEV Transform
+bev:
+  image_size: [900, 1600]
+  bev_size: [200, 200]
+  bev_resolution: 0.5  # meters per pixel
+  feature_channels: 64
+  num_cameras: 6
+  downsample_factor: 16
+
+# Lane Detection
+lane_detection:
+  num_lanes: 4
+  num_points_per_lane: 72
+  image_height: 720
+  image_width: 1280
+  backbone: "resnet18"
+  num_classes: 3  # background, lane_line, drivable_area
+  polynomial_order: 3
+
+# Tracking
+tracking:
+  max_age: 30
+  min_hits: 3
+  iou_threshold: 0.3
+  dt: 0.1  # time step in seconds
+  process_noise: 1.0
+  measurement_noise: 0.5
+
+# Occupancy Grid
+occupancy_grid:
+  width: 200
+  height: 200
+  resolution: 0.5  # meters per cell
+  origin: [-50.0, -50.0]
+  occupied_threshold: 0.7
+  free_threshold: 0.3
+  decay_rate: 0.95
+
+# Sensor Fusion
+fusion:
+  camera_weight: 0.4
+  lidar_weight: 0.6
+  fusion_method: "late"  # early, mid, late
+  association_threshold: 2.0  # meters
+
+# Data
+data:
+  format: "kitti"  # kitti or nuscenes
+  root_dir: "./data"
+  train_split: "train"
+  val_split: "val"
+  batch_size: 4
+  num_workers: 4
+
+# ONNX Export
+export:
+  opset_version: 17
+  dynamic_axes: true
+  simplify: true
+  output_dir: "./outputs/onnx"
+
+# Visualization
+visualization:
+  show_3d_boxes: true
+  show_bev: true
+  show_tracking: true
+  show_point_cloud: true
+  save_dir: "./outputs/viz"
