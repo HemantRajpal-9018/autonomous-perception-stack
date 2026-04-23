@@ -1,0 +1,149 @@
+name: Transparent maintenance
+
+on:
+  schedule:
+    - cron: "17 14 * * 2"
+    - cron: "43 18 * * 4"
+    - cron: "29 15 * * 6"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: transparent-maintenance-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  maintenance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check run gate
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          roll=$(( RANDOM % 100 ))
+          echo "roll=$roll"
+          if [ "$roll" -lt 55 ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out repository
+        if: steps.gate.outputs.should_run == 'true'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare maintenance updates
+        id: changes
+        if: steps.gate.outputs.should_run == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .github
+
+          if [ ! -f .editorconfig ]; then
+            cat > .editorconfig <<'EOF'
+          root = true
+
+          [*]
+          charset = utf-8
+          end_of_line = lf
+          insert_final_newline = true
+          trim_trailing_whitespace = true
+
+          [*.md]
+          trim_trailing_whitespace = false
+          EOF
+          fi
+
+          if [ ! -f CHANGELOG.md ]; then
+            cat > CHANGELOG.md <<'EOF'
+          # Changelog
+
+          All notable changes to this project will be documented in this file.
+
+          ## Unreleased
+
+          - Track future maintenance, fixes, and release notes here.
+          EOF
+          fi
+
+          if [ ! -f .github/dependabot.yml ]; then
+            cat > .github/dependabot.yml <<'EOF'
+          version: 2
+          updates:
+            - package-ecosystem: "github-actions"
+              directory: "/"
+              schedule:
+                interval: "weekly"
+          EOF
+
+            if [ -f package.json ]; then
+              cat >> .github/dependabot.yml <<'EOF'
+            - package-ecosystem: "npm"
+              directory: "/"
+              schedule:
+                interval: "weekly"
+          EOF
+            fi
+
+            if [ -f pyproject.toml ] || [ -f setup.py ] || [ -f setup.cfg ] || ls requirements*.txt >/dev/null 2>&1; then
+              cat >> .github/dependabot.yml <<'EOF'
+            - package-ecosystem: "pip"
+              directory: "/"
+              schedule:
+                interval: "weekly"
+          EOF
+            fi
+          fi
+
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo "No meaningful maintenance changes detected."
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            git status --short
+          fi
+
+      - name: Open maintenance pull request
+        if: steps.changes.outputs.has_changes == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH_NAME: automation/transparent-maintenance
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH_NAME"
+          git add -A
+          git commit -m "maintenance: refresh docs and project metadata"
+          git push --force-with-lease origin "$BRANCH_NAME"
+
+          existing_pr=$(gh pr list --head "${GITHUB_REPOSITORY_OWNER}:$BRANCH_NAME" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$existing_pr" ]; then
+            echo "Maintenance PR #$existing_pr is already open."
+            exit 0
+          fi
+
+          body=$(cat <<'EOF'
+          This PR was opened by the transparent maintenance workflow.
+
+          It only includes low-risk repository maintenance such as dependency metadata, changelog scaffolding, and editor configuration. If the workflow cannot produce a meaningful repository change, it skips PR creation.
+
+          Review before merging.
+          EOF
+          )
+
+          pr_url=$(gh pr create --title "maintenance: refresh docs and project metadata" --body "$body" --base "${{ github.event.repository.default_branch }}" --head "$BRANCH_NAME")
+          gh pr edit "$pr_url" --add-assignee "$GITHUB_REPOSITORY_OWNER" || true
